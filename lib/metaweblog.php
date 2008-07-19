@@ -34,6 +34,7 @@
             return new XMLRPCErrorResponse('Access denied', -32500);
         }
 
+        $blog             = array();
         $blog['url']      = new XMLRPCStringParameter($CONFIG->url."pg/blog/".$parameters[1]);
         $blog['blogid']   = new XMLRPCStringParameter($user->getGUID());
         $blog['blogName'] = new XMLRPCStringParameter($user->name."'s blog");
@@ -45,6 +46,14 @@
         $response->addParameter($blogs);
         
         return $response;
+/*
+        $str = <<< END
+<?xml version="1.0" encoding="ISO-8859-1"?> <methodResponse>  <params>  <param>  <value>  <array>  <data>  <value>  <struct>  <member>  <name>url</name>  <value>http://stuff.foo.com/biz</value>  </member>  <member>  <name>blogid</name>  <value>2997323</value>  </member>  <member>  <name>blogName</name>  <value>Blogger Biz Dev</value>  </member>  </struct>  </value>  <value>  <struct>  <member>  <name>url</name>  <value>http://www.blogger.com/</value>  </member>  <member>  <name>blogid</name>  <value>2723</value>  </member>  <member>  <name>blogName</name>  <value>Blogger News</value>  </member>  </struct>  <value>  <struct>  <member>  <name>url</name>  <value>http://www.geocities.com/rafting/</value>  </member>  <member>  <name>blogid</name>  <value>223723</value>  </member>  <member>  <name>blogName</name>  <value>RaftingBlog</value>  </member>  </struct>  </value>  </value>  </data>  </array>  </value>  </param>  </params> </methodResponse> 
+END;
+
+echo $str;
+exit();
+*/
     }
     
     register_xmlrpc_handler('blogger.getUsersBlogs', 'blogger_getUsersBlogs');
@@ -245,10 +254,15 @@
      *
      * @param XMLRPCCall $data
      * @return array
-     * @todo Integrate with the file plugin
+     * @todo Further Integration with the file plugin, thumbnail actions, etc.
      */
     function metaWeblog_newMediaObject(XMLRPCCall $data)
     {
+        if (!is_plugin_enabled('file'))
+        {
+            return new XMLRPCErrorResponse('File plugin is missing or not enabled', -32505);
+        }
+        
         $parameters  = xmlrpc_parse_params($data->getParameters());
 
         $user_guid   = $parameters[0];
@@ -264,7 +278,45 @@
             return new XMLRPCErrorResponse('Access denied', -32500);
         }
         
-        return new XMLRPCErrorResponse('Not implemented', -32505);
+        // File store reads from the session
+        $_SESSION['user'] = $user;
+        
+    	$prefix = "file/";
+    	
+    	$file = new FilePluginFile();
+    	$filestorename = strtolower(time().$name);
+    	$file->setFilename($prefix.$filestorename);
+    	$file->setMimeType($type);
+    	
+    	$file->originalfilename = $name;    	
+    	$file->subtype = "file";
+    	$file->access_id = ACCESS_PUBLIC;
+    	
+    	$file->open("write");
+    	$file->write($bits);
+    	$file->close();
+    	
+    	$file->title = $name;
+    	$file->description = 'Uploaded with the Elgg Metaweblog plugin';
+    	
+    	$file->simpletype = get_general_file_type($type);
+    
+    	if ($result = $file->save())
+    	{
+    	    $response = new XMLRPCSuccessResponse();
+    	    
+    	    // return a struct containing at least key 'url'
+    	    $params = array();
+    	    $params['url'] = get_entity_url($file);
+    	    
+    	    $response->addParameter(new XMLRPCStructParameter($params));
+    	    
+    	    return $response;
+    	}
+    	else
+    	{
+    	    return new XMLRPCErrorResponse('File save failed', -32508);
+    	}
     }
 
     register_xmlrpc_handler('metaWeblog.newMediaObject', 'metaWeblog_newMediaObject');
@@ -341,14 +393,6 @@
     
     register_xmlrpc_handler('metaWeblog.getRecentPosts', 'metaWeblog_getRecentPosts');
     
-    function elgg_test(XMLRPCCall $data)
-    {
-        $parameters = xmlrpc_parse_params($data->getParameters());
-        print_r($parameters);
-    }
-    
-    register_xmlrpc_handler('elgg.test', 'elgg_test');
-
     /**
      * Create a struct suitable for passing to an XMLRPCResponse
      *
